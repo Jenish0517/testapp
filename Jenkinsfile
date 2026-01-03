@@ -3,71 +3,77 @@ pipeline {
 
     stages {
 
-        stage('Build') {
+        stage('build') {
             agent {
                 docker {
                     image 'maven:3.9.6-eclipse-temurin-17-alpine'
                 }
             }
             steps {
-                echo 'Compiling sysfoo app...'
+                echo 'compiling sysfoo app...'
                 sh 'mvn compile'
             }
         }
 
-        stage('Test') {
+        stage('test') {
             agent {
                 docker {
                     image 'maven:3.9.6-eclipse-temurin-17-alpine'
                 }
             }
             steps {
-                echo 'Running unit tests...'
-                sh 'mvn test'
+                echo 'running unit tests...'
+                sh 'mvn clean test'
             }
         }
 
-        stage('Package') {
-            when { branch 'main' }
+        stage('package') {
+            when {
+                branch 'main'
+            }
 
             parallel {
 
-                stage('Jar Package') {
+                stage('package') {
                     agent {
                         docker {
                             image 'maven:3.9.6-eclipse-temurin-17-alpine'
                         }
                     }
                     steps {
-                        echo 'Packaging the app...'
+                        echo 'packaging the app...'
 
                         sh '''
+                        # Truncate the GIT_COMMIT to the first 7 characters
                         GIT_SHORT_COMMIT=$(echo $GIT_COMMIT | cut -c 1-7)
+
+                        # Set the version using Maven
                         mvn versions:set -DnewVersion="$GIT_SHORT_COMMIT"
                         mvn versions:commit
-                        mvn package -DskipTests
                         '''
 
-                        archiveArtifacts artifacts: '**/target/*.jar'
+                        sh 'mvn package -DskipTests'
+                        archiveArtifacts '**/target/*.jar'
                     }
                 }
 
-                stage('Docker Build & Push') {
-                    agent { label 'docker' }   
+                stage('Docker B&P') {
+                    agent any
                     steps {
                         script {
-                            docker.withRegistry('https://index.docker.io/v1/', 'dockerlogin') {
-
+                            docker.withRegistry(
+                                'https://index.docker.io/v1/',
+                                'dockerlogin'
+                            ) {
                                 def commitHash = env.GIT_COMMIT.take(7)
-
-                                def image = docker.build(
+                                def dockerImage = docker.build(
                                     "initcron/sysfoo:${commitHash}",
-                                    "."
+                                    "./"
                                 )
 
-                                image.push()
-                                image.push('latest')
-                                image.push('dev')
+                                dockerImage.push()
+                                dockerImage.push("latest")
+                                dockerImage.push("dev")
                             }
                         }
                     }
@@ -76,9 +82,13 @@ pipeline {
         }
     }
 
+    tools {
+        maven 'Maven 3.9.6'
+    }
+
     post {
         always {
-            echo 'This pipeline is completed.'
+            echo 'This pipeline is completed..'
         }
     }
 }
